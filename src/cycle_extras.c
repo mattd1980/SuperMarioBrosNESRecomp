@@ -7,6 +7,7 @@
 #include "game_voxel.h"
 #include "game_fireglow.h"
 #include "game_atmosphere.h"
+#include "game_impact.h"
 #include "game_smash64.h"
 #include "game_smash64_render.h"
 #include "game_link.h"
@@ -24,7 +25,7 @@ uint64_t g_frame_count;
 static uint32_t picture[NES_MAX_RENDER_WIDTH*240];
 static int suppress(int slot,int x,int y,void *user) {(void)user;int rel;return game_coop_suppress_sprite(slot)||game_smash64_render_suppress_sprite(slot,x,y)||smb_ws_actors_suppress_sprite(slot)||smb_ws_objects_suppress_sprite(slot)||smb_ws_fireballs_sprite_rel(slot,&rel);}
 static void power_on(void *ctx) {
-    (void)ctx;smb1_cycle_init();cyc_render_capture_background(true);g_frame_count=0;
+    (void)ctx;smb1_cycle_init();cyc_render_capture_background(true);g_frame_count=0;game_impact_reset();
     if(game_coop_enabled()){game_widescreen_set_mod_enabled(0);game_voxel_set_mod_enabled(0);game_smash64_set_mod_enabled(0,NULL);game_link_set_enabled(0,NULL);game_samus_set_enabled(0,NULL);game_sonic_set_enabled(0,NULL);}
     game_widescreen_init();game_voxel_init();game_smash64_init();game_smash64_render_init();ppu_renderer_set_sprite_suppress(suppress,NULL);
 }
@@ -35,7 +36,7 @@ static void input(void *ctx,uint8_t buttons[2]) {
 static void frame_begin(void *ctx) {(void)ctx;smb1_cycle_sync();g_frame_count=cyc_ring_frame;}
 static void frame_end(void *ctx) {
     (void)ctx;smb1_cycle_sync();g_frame_count=cyc_ring_frame;
-    game_widescreen_update();game_voxel_update();game_smash64_update(g_frame_count);game_link_update(g_frame_count);game_samus_update(g_frame_count);game_sonic_update(g_frame_count);
+    game_widescreen_update();game_voxel_update();game_smash64_update(g_frame_count);game_link_update(g_frame_count);game_samus_update(g_frame_count);game_sonic_update(g_frame_count);game_impact_frame_end();
 }
 static const uint32_t *present(void *ctx,int *width,int *height) {
     (void)ctx;smb1_cycle_sync();const uint32_t *source=cyc_render_present(width,height);
@@ -44,6 +45,7 @@ static const uint32_t *present(void *ctx,int *width,int *height) {
     game_atmosphere_pre(picture,*width,*height);
     game_fireglow_post_render(picture,*width,*height);
     game_atmosphere_post(picture,*width,*height);
+    game_impact_post_render(picture,*width,*height);
     game_voxel_post_render(picture);game_smash64_render_post_render(picture);game_link_render_post_render(picture);game_samus_render_post_render(picture);game_sonic_render_post_render(picture);game_coop_render(picture);return picture;
 }
 static bool option(void *ctx,const char *key,const char *value) {
@@ -66,7 +68,7 @@ WS_CMD(smb_ws_state,"smb_ws_state") WS_CMD(smb_ws_seam,"smb_ws_seam") WS_CMD(smb
 static void tcp_setup(void *ctx) {(void)ctx;cyc_tcp_register("coop_state","logical player and shared-world state",tcp_coop);cyc_tcp_register("smb_ws_state","terrain state",tcp_smb_ws_state);cyc_tcp_register("smb_ws_seam","terrain comparison",tcp_smb_ws_seam);cyc_tcp_register("smb_ws_actors","resident state",tcp_smb_ws_actors);}
 static void event(void *ctx,const void *raw,int player) {(void)ctx;cyc_presentation_event(raw,player);game_voxel_handle_event(raw);}
 static void audio_mix(void *ctx,int16_t *samples,size_t count) {(void)ctx;nes_mod_audio_mix(samples,(int)count);}
-static void state_loaded(void *ctx) {(void)ctx;smb1_cycle_sync();nes_mod_audio_stop_all();}
+static void state_loaded(void *ctx) {(void)ctx;smb1_cycle_sync();nes_mod_audio_stop_all();game_impact_reset();}
 const CycHostExtras *cyc_host_extras(void) {
     static const CycHostOption options[]={
         {"--widescreen",true,"fit|16:9|21:9|32:9|off"},{"--widescreen-hud",true,"edges|center"},{"--widescreen-enemies",true,"viewport|classic|native"},{"--widescreen-camera",true,"edges|centered"},
