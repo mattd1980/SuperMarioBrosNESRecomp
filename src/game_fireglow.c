@@ -18,6 +18,7 @@
 #include "game_fireglow.h"
 #include "cycle_bridge.h"
 #include "game_widescreen.h"
+#include "smb_ws_fireballs.h"
 
 #include <math.h>
 #include <string.h>
@@ -75,7 +76,9 @@ static int find_fire(Fire *out, int max)
         int kind = tile == 0x64 || tile == 0x65 ? 0 : tile >= 0x66 && tile <= 0x68 ? 1
                  : tile >= 0x51 && tile <= 0x53 ? 2 : tile == 0xd0 || tile == 0xd7 ? 3 : -1;
         if (kind < 0) continue;
-        out[n++] = (Fire){ x + 4, y + 1 + 4, kind };              /* centre of the 8x8 sprite */
+        int rel = x;
+        smb_ws_fireballs_sprite_rel(i, &rel);                      /* a fireball beyond the native screen */
+        out[n++] = (Fire){ rel + 4, y + 1 + 4, kind };            /* centre of the 8x8 sprite */
     }
     return n;
 }

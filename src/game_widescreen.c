@@ -3,6 +3,7 @@
 #include "smb_ws_actors.h"
 #ifdef SMB1_CYCLE
 #include "cycle_bridge.h"
+#include "smb_ws_fireballs.h"
 #else
 #include "nes_runtime.h"
 #endif
@@ -205,6 +206,9 @@ static int render(uint32_t *out, int width, int height, int native_x0,
     }
     compose_status_bar(out, width, native_x0, play_x0, native);
     smb_ws_actors_draw(out,width,play_x0,cam,s_opaque);
+#ifdef SMB1_CYCLE
+    smb_ws_fireballs_draw(out, width, height, play_x0, s_opaque);
+#endif
     ppu_renderer_set_background_opaque_frame(s_opaque,width,height);
     s_wide_frames++;
     return 1;
@@ -228,6 +232,9 @@ static void apply(void) {
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.area", s_enabled);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.collision-column", s_enabled);
     smb_ws_actors_configure(s_enabled,s_enemies);
+#ifdef SMB1_CYCLE
+    smb_ws_fireballs_configure(s_enabled);
+#endif
 }
 void game_widescreen_set_mod_enabled(int enabled) {
     s_enabled = enabled != 0;

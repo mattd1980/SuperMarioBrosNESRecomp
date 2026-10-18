@@ -212,6 +212,26 @@ static int ensure(void) {
     }
     return 1;
 }
+/* A fireball in the wide margins (smb_ws_fireballs.c) hit-tests residents that
+ * are not in a native slot, with FireballEnemyCollision's own rules and boxes
+ * (BoundBoxCtrlData at $E1FD), in world coordinates. The first hit resident is
+ * moved into a native slot so the game's HandleEnemyFBallCol can defeat and
+ * score it; its slot, or -1 (no hit, or every slot busy nearer Mario). */
+static void promote(int n);
+int smb_ws_actors_fireball_target(int left,int top,int right,int bottom) {
+    if (!s_enabled || s_virtual || !gameplay() || !ensure()) return -1;
+    for (int n=0;n<s.count;n++) {
+        Actor *a=&s.actor[n];
+        if (!a->loaded || !a->active || a->dead || a->native_slot>=0) continue;
+        int id=a->state[F_ID],st=a->state[F_STATE];
+        if (!a->state[F_FLAG] || (st&0x20) || (id>=0x24 && id<0x2b) || (id==6 && st>=2)) continue;
+        int box=0xe1fd+a->state[F_BBOX]*4,x=actor_x(a),y=a->state[F_Y];
+        if (x+rom(box)>right || x+rom(box+2)<left || y+rom(box+1)>bottom || y+rom(box+3)<top) continue;
+        promote(n);
+        return a->native_slot;
+    }
+    return -1;
+}
 void smb_ws_actors_set_extra_enemies(SmbWsExtraEnemies source) { s_extra=source; smb_ws_actors_reset(); }
 int smb_ws_actors_managing(void) { return s_enabled && gameplay() && g_smb_ws_world.valid; }
 static void initialize(Actor *a) {

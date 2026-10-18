@@ -18,3 +18,5 @@ typedef int (*SmbWsExtraEnemies)(SmbWsExtraEnemy *out, int cap);
 void smb_ws_actors_set_extra_enemies(SmbWsExtraEnemies source);
 /* True while residents load enemies (widescreen enemies on, in gameplay). */
 int smb_ws_actors_managing(void);
+/* Fireball box in world coordinates; see smb_ws_actors.c. Native slot or -1. */
+int smb_ws_actors_fireball_target(int left, int top, int right, int bottom);
