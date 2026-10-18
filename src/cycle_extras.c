@@ -6,6 +6,7 @@
 #include "game_widescreen.h"
 #include "game_voxel.h"
 #include "game_fireglow.h"
+#include "game_atmosphere.h"
 #include "game_smash64.h"
 #include "game_smash64_render.h"
 #include "game_link.h"
@@ -38,7 +39,9 @@ static const uint32_t *present(void *ctx,int *width,int *height) {
     (void)ctx;smb1_cycle_sync();const uint32_t *source=cyc_render_present(width,height);
     if(*width==256)source=smb1_cycle_native_picture();
     memcpy(picture,source,(size_t)*width**height*sizeof(*picture));
+    game_atmosphere_pre(picture,*width,*height);
     game_fireglow_post_render(picture,*width,*height);
+    game_atmosphere_post(picture,*width,*height);
     game_voxel_post_render(picture);game_smash64_render_post_render(picture);game_link_render_post_render(picture);game_samus_render_post_render(picture);game_sonic_render_post_render(picture);game_coop_render(picture);return picture;
 }
 static bool option(void *ctx,const char *key,const char *value) {

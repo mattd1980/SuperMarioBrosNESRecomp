@@ -1,0 +1,59 @@
+format_version = 1
+id = "super-mario-bros.enhancement.atmosphere"
+version = "1.0.0"
+name = "Atmosphere"
+author = "NESRecomp"
+description = "Lighting and effects tied to the game: darker underground and castle levels with a light around Mario, caustic light and shafts underwater, a rainbow aura for Starman, glowing coins and power-ups, and dust from broken bricks. Presentation only: game logic, the ROM and save states are unchanged."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "stock"
+
+[[target]]
+game_id = "super-mario-bros-world"
+rom_crc32 = "d445f698"
+
+[[feature]]
+id = "atmosphere"
+name = "Atmosphere"
+description = "Per-level lighting and effects on game objects. Pairs with Fireball Glow: fire lights up the dark levels."
+group = "Display"
+default_enabled = true
+
+[[plugin]]
+feature = "atmosphere"
+id = "super-mario-bros.atmosphere"
+
+[[option]]
+feature = "atmosphere"
+id = "dark"
+label = "Dark underground and castles"
+type = "boolean"
+default = true
+
+[[option]]
+feature = "atmosphere"
+id = "water"
+label = "Underwater light"
+type = "boolean"
+default = true
+
+[[option]]
+feature = "atmosphere"
+id = "starman"
+label = "Starman aura"
+type = "boolean"
+default = true
+
+[[option]]
+feature = "atmosphere"
+id = "items"
+label = "Glowing coins and power-ups"
+type = "boolean"
+default = true
+
+[[option]]
+feature = "atmosphere"
+id = "dust"
+label = "Brick dust"
+type = "boolean"
+default = true

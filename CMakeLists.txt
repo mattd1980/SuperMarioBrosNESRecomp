@@ -58,6 +58,8 @@ if(NESRECOMP_BACKEND STREQUAL "cycle")
             mods/extra_enemies_plugin.c
             src/game_fireglow.c
             mods/fireglow_plugin.c
+            src/game_atmosphere.c
+            mods/atmosphere_plugin.c
             mods/smash64_player_plugin.c
             mods/zelda2_player_plugin.c
             mods/metroid_player_plugin.c

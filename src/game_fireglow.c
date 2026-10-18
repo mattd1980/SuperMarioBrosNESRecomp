@@ -61,7 +61,9 @@ static float hash01(uint32_t v)            /* 0..1 from an integer, for flicker 
     return (float)(v & 0xffffff) / 16777216.0f;
 }
 
-typedef struct { int x, y, kind; } Fire;   /* kind 0: fireball / firebar, 1: explosion */
+/* kind 0: fireball / firebar, 1: explosion / fireworks, 2: Bowser's flame
+ * (ProcBowserFlame writes tiles $51-$53), 3: Podoboo (EnemyGraphicsTable $d0/$d7) */
+typedef struct { int x, y, kind; } Fire;
 
 static int find_fire(Fire *out, int max)
 {
@@ -70,7 +72,8 @@ static int find_fire(Fire *out, int max)
     for (int i = 0; i < 64 && n < max; ++i) {
         uint8_t y = oam[i * 4], tile = oam[i * 4 + 1], x = oam[i * 4 + 3];
         if (y >= 0xef) continue;                                   /* hidden */
-        int kind = tile == 0x64 || tile == 0x65 ? 0 : tile >= 0x66 && tile <= 0x68 ? 1 : -1;
+        int kind = tile == 0x64 || tile == 0x65 ? 0 : tile >= 0x66 && tile <= 0x68 ? 1
+                 : tile >= 0x51 && tile <= 0x53 ? 2 : tile == 0xd0 || tile == 0xd7 ? 3 : -1;
         if (kind < 0) continue;
         out[n++] = (Fire){ x + 4, y + 1 + 4, kind };              /* centre of the 8x8 sprite */
     }
@@ -120,16 +123,17 @@ static void step_embers(const Fire *fire, int n, int camera, uint64_t frame)
     if (!s_flames) return;
     /* a fresh puff from every flying fireball (explosions burst once, bigger) */
     for (int f = 0; f < n; ++f) {
-        int count = fire[f].kind == 0 ? 2 : ((frame & 3) == 0 ? 5 : 0);
+        int count = fire[f].kind == 0 ? 2 : fire[f].kind == 1 ? ((frame & 3) == 0 ? 5 : 0) : 1;
         for (int c = 0; c < count && s_ember_count < MAX_EMBERS; ++c) {
             Ember *e = &s_embers[s_ember_count++];
             e->x = (float)(fire[f].x + camera) + (rnd() - 0.5f) * 5.0f;
             e->y = (float)fire[f].y + (rnd() - 0.5f) * 5.0f;
-            e->vx = (rnd() - 0.5f) * (fire[f].kind ? 1.6f : 0.6f);
-            e->vy = -0.25f - rnd() * (fire[f].kind ? 1.1f : 0.5f);
+            int burst = fire[f].kind == 1;
+            e->vx = (rnd() - 0.5f) * (burst ? 1.6f : 0.6f);
+            e->vy = -0.25f - rnd() * (burst ? 1.1f : 0.5f);
             e->age = 0.0f;
             e->life = 9.0f + rnd() * 9.0f;
-            e->size = 1.2f + rnd() * (fire[f].kind ? 1.6f : 0.9f);
+            e->size = 1.2f + rnd() * (burst ? 1.6f : 0.9f);
         }
     }
 }
@@ -169,8 +173,8 @@ static void draw_embers(uint32_t *pic, int w, int h, int camera, int x0)
 void game_fireglow_post_render(uint32_t *pic, int w, int h)
 {
     if (!s_enabled || !pic || w <= 0 || w > MAX_W || h != 240) return;
-    int camera = (cyc_mod_peek(0x071a) << 8) | cyc_mod_peek(0x071c);   /* ScreenLeft page:x */
-    int x0 = w > 256 ? camera - game_widescreen_view_left(camera, w) : 0;
+    int camera;
+    int x0 = game_widescreen_picture_origin(w, &camera);              /* where sprite x 0 is drawn */
     Fire fire[64];
     int n = find_fire(fire, 64);
     uint64_t frame = g_frame_count;
@@ -184,8 +188,9 @@ void game_fireglow_post_render(uint32_t *pic, int w, int h)
         for (int i = 0; i < n; ++i) {
             float flicker = 0.84f + 0.10f * hash01((uint32_t)(frame * 7 + (uint64_t)i * 131)) +
                             0.06f * sinf((float)frame * 0.7f + (float)i * 1.9f);
-            float radius = fire[i].kind ? 40.0f : 26.0f;
-            float amount = (fire[i].kind ? 0.55f : 0.48f) * flicker * s_strength;
+            static const float RADIUS[] = { 26.0f, 40.0f, 34.0f, 30.0f }, AMOUNT[] = { 0.48f, 0.55f, 0.42f, 0.50f };
+            float radius = RADIUS[fire[i].kind];
+            float amount = AMOUNT[fire[i].kind] * flicker * s_strength;
             add_light(w, h, fire[i].x + x0, fire[i].y, radius, amount, &lx0, &ly0, &lx1, &ly1);
         }
         for (int y = ly0; y <= ly1; ++y)
@@ -196,11 +201,13 @@ void game_fireglow_post_render(uint32_t *pic, int w, int h)
                 if (L > 1.6f) L = 1.6f;
                 uint32_t p = pic[y * w + x];
                 float r = (float)((p >> 16) & 255), g = (float)((p >> 8) & 255), b = (float)(p & 255);
-                /* warm light: catches the surface's own colour, plus a soft glow;
+                /* warm light: catches the surface's own colour, plus a soft glow
+                 * that grows on dark surfaces (a black cave still shows the halo);
                  * blue is held back so the light reads as fire, not white */
-                r += (r * 1.1f + 90.0f) * L;
-                g += (g * 1.1f + 90.0f) * L * 0.55f;
-                b += (b * 1.1f + 90.0f) * L * 0.10f - b * 0.35f * L;
+                float glow = 70.0f + 150.0f * (1.0f - (r * 0.3f + g * 0.59f + b * 0.11f) / 255.0f);
+                r += (r * 1.1f + glow) * L;
+                g += (g * 1.1f + glow) * L * 0.55f;
+                b += (b * 1.1f + glow) * L * 0.10f - b * 0.35f * L;
                 pic[y * w + x] = clamp_rgb(r, g, b < 0 ? 0 : b, p & 0xff000000u);
             }
     }

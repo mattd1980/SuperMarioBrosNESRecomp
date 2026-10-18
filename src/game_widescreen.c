@@ -99,17 +99,29 @@ static int render_camera(void) {
     return cam+((ppu-cam+256)&511)-256;
 }
 
+static int s_render_ok;   /* the last picture came from render() */
+
+int game_widescreen_picture_origin(int width, int *camera) {
+    if (width > 256 && s_render_ok) {
+        if (camera) *camera = s_render_camera;
+        return s_render_native_x0;
+    }
+    if (camera) *camera = render_camera();
+    return width > 256 ? (width - 256) / 2 : 0;
+}
+
 static int render(uint32_t *out, int width, int height, int native_x0,
                   const uint32_t *native, void *user) {
     (void)user;
     if (!s_enabled || !gameplay() || !g_smb_ws_world.valid || !(g_ppumask & 8)) {
-        s_native_frames++; return 0;
+        s_native_frames++; s_render_ok = 0; return 0;
     }
     int cam = render_camera();
     s_render_camera=cam;
     s_view_left = game_widescreen_view_left(cam, width);
     int play_x0 = cam - s_view_left;
     s_render_native_x0 = play_x0;
+    s_render_ok = 1;
     int room_left = 0, room_right = SMB_WS_META_COLUMNS * 16;
     if (anchor_camera(width)) smb_ws_world_bounds(cam, &room_left, &room_right);
     uint32_t backdrop = g_nes_palette[g_ppu_pal[0] & 63];

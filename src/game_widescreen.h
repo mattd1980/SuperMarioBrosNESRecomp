@@ -7,6 +7,10 @@ void game_widescreen_set_mod_enabled(int enabled);
 void game_widescreen_configure(const char *aspect, const char *hud, const char *enemies);
 void game_widescreen_set_camera(const char *camera);
 int game_widescreen_view_left(int native_camera, int width);
+/* For passes drawn over the presented picture: where the native 256-pixel
+ * view (sprite x 0) sits in it, and the level camera it shows (the displayed
+ * PPU scroll, not the one game logic has already advanced). */
+int game_widescreen_picture_origin(int width, int *camera);
 void game_widescreen_actor_range(int native_camera, int width, int pad, int *left, int *right);
 void game_widescreen_begin_frame(void);
 void game_widescreen_init(void);
