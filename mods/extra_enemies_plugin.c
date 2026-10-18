@@ -9,10 +9,16 @@
  *
  * Only the main ground area of 1-1 is touched; with all five enemy slots busy
  * a spawn point is skipped, as an authored enemy would wait. A death or reset
- * moves the screen back and re-arms every point. */
+ * moves the screen back and re-arms every point.
+ *
+ * With Widescreen's enemy residents on, the native screen edge is not the
+ * visible edge: the points are handed to the residents instead
+ * (smb_ws_actors_set_extra_enemies), which load them at the wide view's edge
+ * exactly like the ROM's own enemies, and this hook stands down. */
 #include "mod_runtime.h"
 #include "mod_function_hooks.h"
 #include "cyc_mod.h"
+#include "smb_ws_actors.h"
 
 #include <stdio.h>
 
@@ -38,11 +44,25 @@ static unsigned long s_spawned;
 
 static uint8_t peek(uint16_t a) { return cyc_mod_peek(a); }
 
-static int in_1_1(void)
+static int in_1_1_ground(void)
 {
     return peek(0x075f) == 0 && peek(0x075c) == 0 &&   /* WorldNumber, LevelNumber */
-           peek(0x074e) == 1 &&                        /* AreaType: ground */
-           peek(0x0747) == 0;                          /* TimerControl: not frozen */
+           peek(0x074e) == 1;                          /* AreaType: ground */
+}
+
+static int in_1_1(void)
+{
+    return in_1_1_ground() && peek(0x0747) == 0;       /* TimerControl: not frozen */
+}
+
+/* Widescreen residents ask for the area's extra enemies when they load it. */
+static int extra_records(SmbWsExtraEnemy *out, int cap)
+{
+    if (!in_1_1_ground()) return 0;
+    int n = 0;
+    for (int i = 0; i < SPAWN_COUNT && n < cap; ++i)
+        out[n++] = (SmbWsExtraEnemy){ SPAWNS[i].x, GROUND_Y, SPAWNS[i].id };
+    return n;
 }
 
 static int spawn(const Spawn *sp)
@@ -77,7 +97,7 @@ static int spawn(const Spawn *sp)
 static int core_hook(uint16_t addr)
 {
     (void)addr;
-    if (!in_1_1()) return 0;
+    if (!in_1_1() || smb_ws_actors_managing()) return 0;
     int right = (peek(0x071b) << 8) | peek(0x071d);    /* ScreenRight page:x */
     for (int i = 0; i < SPAWN_COUNT; ++i) {
         int x = SPAWNS[i].x;
@@ -92,11 +112,13 @@ static int core_hook(uint16_t addr)
 static void reset_extra_enemies(void)
 {
     nes_mod_set_function_hook_enabled(HOOK_ID, 0);
+    smb_ws_actors_set_extra_enemies(NULL);
 }
 
 static void activate_extra_enemies(void)
 {
     for (int i = 0; i < SPAWN_COUNT; ++i) s_done[i] = 0;
+    smb_ws_actors_set_extra_enemies(extra_records);
     /* spawn bookkeeping lives outside the machine: keep it off rollback netplay */
     nes_mod_set_local_only("Extra 1-1 enemies", 1);
     nes_mod_set_function_hook_enabled(HOOK_ID, 1);

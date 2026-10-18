@@ -70,6 +70,10 @@ typedef struct {
 } Actors;
 static Actors s;
 static int s_enabled,s_virtual,s_render_wide;
+/* Mod-added enemies: record offset EXTRA_OFFSET with member EXTRA_MEMBER, which
+ * no ROM record (members 0-2) can match in spawn_hook. */
+enum { EXTRA_OFFSET=254, EXTRA_MEMBER=7 };
+static SmbWsExtraEnemies s_extra;
 static SmbEnemyMode s_mode=SMB_ENEMIES_VIEWPORT;
 typedef struct {
     uint8_t ram[0x800],runtime[1024];
@@ -201,8 +205,15 @@ static int ensure(void) {
         const SmbWsPlant *p=&g_smb_ws_world.plants[i];
         add(255,0,p->x,p->y,0x0d);
     }
+    if (s_extra) {
+        SmbWsExtraEnemy extra[64];
+        int n=s_extra(extra,64);
+        for (int i=0;i<n && i<64;i++) if (managed(extra[i].id)) add(EXTRA_OFFSET,EXTRA_MEMBER,extra[i].x,extra[i].y,extra[i].id);
+    }
     return 1;
 }
+void smb_ws_actors_set_extra_enemies(SmbWsExtraEnemies source) { s_extra=source; smb_ws_actors_reset(); }
+int smb_ws_actors_managing(void) { return s_enabled && gameplay() && g_smb_ws_world.valid; }
 static void initialize(Actor *a) {
     memset(a->state,0,sizeof a->state);
     a->state[F_FLAG]=1; a->state[F_ID]=a->kind;
@@ -406,6 +417,9 @@ void smb_ws_actors_update(void) {
             a->active=s_mode==SMB_ENEMIES_VIEWPORT;
         }
         int x=actor_x(a);
+        /* Classic activation comes from the native enemy parser, which never
+         * sees mod-added records: wake those where it would (native right+48). */
+        if (!a->active && a->offset==EXTRA_OFFSET && x<=cam+256+PAD) a->active=1;
         if (a->active && (x<left-32 || x>right+32)) { a->dead=1; continue; }
         if (native_ticked[n]) continue; /* already advanced by this frame's native routine */
         Guest g;
