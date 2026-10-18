@@ -55,6 +55,7 @@ if(NESRECOMP_BACKEND STREQUAL "cycle")
             src/game_sonic_items.c
             mods/widescreen_plugin.c
             mods/voxel_plugin.c
+            mods/extra_enemies_plugin.c
             mods/smash64_player_plugin.c
             mods/zelda2_player_plugin.c
             mods/metroid_player_plugin.c
