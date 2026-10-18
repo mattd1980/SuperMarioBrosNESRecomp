@@ -22,8 +22,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { SLOTS = 6, SPRITES = 24 };
-enum { REL_POSITION = 0xf152, OFFSCREEN_BITS = 0xf1af };
+/* Captures: enemy slots 0-5, then misc objects 0-8 (hammers) at MISC+i. */
+enum { MISC = 6, SLOTS = MISC + 9, SPRITES = 24 };
+typedef struct { uint16_t offscreen_bits, rel_position; } Prepare;
+static const Prepare ENEMY = { 0xf1af, 0xf152 }, MISC_OBJECT = { 0xf19b, 0xf148 };
 
 typedef struct { int16_t x, y; uint8_t tile, attr, oam; } WideSprite;
 typedef struct { int count; WideSprite sprite[SPRITES]; uint64_t oam_mask; } Capture;
@@ -46,12 +48,14 @@ static int wanted(int x, int reach) {
     return x + reach >= left && x - reach <= right;
 }
 
-/* Run `routine` for object `slot` isolated, camera centred on `x`, and keep
- * what it draws. `prepare`: first recompute the offscreen bits and relative
- * position for that camera (routines that use the caller's). */
-static void capture(int slot, uint16_t routine, int x, int prepare) {
-    Capture *c = &s_next[slot];
+/* Run `routine` for object `object` (its X register) isolated, camera
+ * centred on `x`, and keep what it draws in capture `index`. `prepare`: first
+ * recompute the offscreen bits and relative position for that camera
+ * (routines that use the caller's); NULL when the routine does it. */
+static void capture_into(int index, int object, uint16_t routine, int x, const Prepare *prepare) {
+    Capture *c = &s_next[index];
     c->count = 0; c->oam_mask = 0;
+    int slot = object;
     if (!cyc_mod_isolate_begin()) return;
     int cam = x - 128;
     g_ram[0x71a] = (uint8_t)(cam >> 8); g_ram[0x71c] = (uint8_t)cam;
@@ -60,8 +64,8 @@ static void capture(int slot, uint16_t routine, int x, int prepare) {
     CycModRegs r; cyc_mod_regs(&r);
     int ok = 1;
     if (prepare) {
-        r.x = (uint8_t)slot; ok = cyc_mod_call(OFFSCREEN_BITS, &r);
-        r.x = (uint8_t)slot; ok = ok && cyc_mod_call(REL_POSITION, &r);
+        r.x = (uint8_t)slot; ok = cyc_mod_call(prepare->offscreen_bits, &r);
+        r.x = (uint8_t)slot; ok = ok && cyc_mod_call(prepare->rel_position, &r);
     }
     r.x = (uint8_t)slot;
     if (ok && cyc_mod_call(routine, &r))
@@ -74,11 +78,15 @@ static void capture(int slot, uint16_t routine, int x, int prepare) {
     cyc_mod_isolate_end();
     smb1_cycle_sync();
     if (getenv("NESRECOMP_WS_OBJECTS_TRACE") && c->count) {
-        fprintf(stderr, "[ws-objects] slot %d routine %04x x %d:", slot, routine, x);
+        fprintf(stderr, "[ws-objects] capture %d routine %04x x %d:", index, routine, x);
         for (int i = 0; i < c->count; i++)
             fprintf(stderr, " %d:%02x/%02x@%d", c->sprite[i].oam, c->sprite[i].tile, c->sprite[i].attr, c->sprite[i].x - x);
         fprintf(stderr, "\n");
     }
+}
+
+static void capture(int slot, uint16_t routine, int x, const Prepare *prepare) {
+    capture_into(slot, slot, routine, x, prepare);
 }
 
 static int slot_of(void) { CycModRegs r; cyc_mod_regs(&r); return r.x; }
@@ -88,7 +96,7 @@ static int slot_of(void) { CycModRegs r; cyc_mod_regs(&r); return r.x; }
 static int firebar_hook(uint16_t addr) {
     (void)addr;
     int slot = slot_of();
-    if (slot < 5 && wanted(enemy_x(slot) + 4, 0x60)) capture(slot, 0xcd3c, enemy_x(slot) + 4, 0);
+    if (slot < 5 && wanted(enemy_x(slot) + 4, 0x60)) capture(slot, 0xcd3c, enemy_x(slot) + 4, NULL);
     return 0;
 }
 
@@ -96,7 +104,7 @@ static int firebar_hook(uint16_t addr) {
 static int bowser_hook(uint16_t addr) {
     (void)addr;
     int slot = slot_of();
-    if (slot < 5 && wanted(enemy_x(slot) + 8, 32)) capture(slot, 0xd17b, enemy_x(slot) + 8, 0);
+    if (slot < 5 && wanted(enemy_x(slot) + 8, 32)) capture(slot, 0xd17b, enemy_x(slot) + 8, NULL);
     return 0;
 }
 
@@ -105,7 +113,7 @@ static int bowser_hook(uint16_t addr) {
 static int flame_hook(uint16_t addr) {
     (void)addr;
     int slot = slot_of();
-    if (slot < 5 && wanted(enemy_x(slot) + 12, 24)) capture(slot, 0xd1eb, enemy_x(slot) + 12, 1);
+    if (slot < 5 && wanted(enemy_x(slot) + 12, 24)) capture(slot, 0xd1eb, enemy_x(slot) + 12, &ENEMY);
     return 0;
 }
 
@@ -113,7 +121,24 @@ static int flame_hook(uint16_t addr) {
  * real camera just before, so recompute them for the private one. */
 static int powerup_hook(uint16_t addr) {
     (void)addr;
-    if (slot_of() == 5 && wanted(enemy_x(5) + 8, 16)) capture(5, 0xe6d2, enemy_x(5) + 8, 1);
+    if (slot_of() == 5 && wanted(enemy_x(5) + 8, 16)) capture(5, 0xe6d2, enemy_x(5) + 8, &ENEMY);
+    return 0;
+}
+
+/* DrawHammer ($E4DC), X = misc object: it draws, then erases the hammer if
+ * Misc_OffscreenBits ($03D6, computed just before for this object) has any of
+ * %11111100 set - so a hammer died at the native edge. Inside the wide view
+ * its horizontal half is cleared first (hammers do not touch the terrain, so
+ * the native block buffer is no limit); its sprites, whose 8-bit X wraps past
+ * the native screen, are captured and drawn at their real place. */
+static int hammer_hook(uint16_t addr) {
+    (void)addr;
+    int i = slot_of();
+    if (i >= 9 || !s_enabled || g_render_width <= 256 || !gameplay()) return 0;
+    int x = (g_ram[0x7a + i] << 8) | g_ram[0x93 + i], cam = camera(), left, right;
+    game_widescreen_actor_range(cam, g_render_width, 0, &left, &right);
+    if (x > left - 8 && x < right) cyc_mod_poke(0x03d6, (uint8_t)(g_ram[0x03d6] & 0xf0));
+    if (wanted(x + 8, 16)) capture_into(MISC + i, i, 0xe4dc, x + 8, &MISC_OBJECT);
     return 0;
 }
 
@@ -175,12 +200,14 @@ void smb_ws_objects_configure(int enabled) {
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.bowser", s_enabled);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.bowser-flame", s_enabled);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.power-up", s_enabled);
+    nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.hammer", s_enabled);
 }
 
 NES_MOD_CONSTRUCTOR(register_objects) {
     if (!nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.firebar", 0xcd3c, firebar_hook) ||
         !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.bowser", 0xd17b, bowser_hook) ||
         !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.bowser-flame", 0xd1eb, flame_hook) ||
-        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.power-up", 0xe6d2, powerup_hook))
+        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.power-up", 0xe6d2, powerup_hook) ||
+        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.hammer", 0xe4dc, hammer_hook))
         fprintf(stderr, "[Widescreen] Failed to register object drawing hooks\n");
 }

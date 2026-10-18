@@ -415,8 +415,20 @@ static int right_extent_hook(uint16_t addr) {
  * every other ScreenRight read (including the "already behind" test) keep
  * the native value. A pure read verdict (cyc_mod_set_ram_read_hook). */
 uint8_t smb_ws_actors_ram_read(uint16_t pc,uint16_t addr,uint8_t value) {
-    if (!((pc==0xc164 && addr==0x71d) || (pc==0xc16e && addr==0x71b))) return value;
+    int lookahead=(pc==0xc164 && addr==0x71d) || (pc==0xc16e && addr==0x71b);
+    int throw_gate=pc==0xc9e7 && addr==0x3d1;
+    if (!lookahead && !throw_gate) return value;
     if (!s_enabled || s_virtual || s_mode!=SMB_ENEMIES_VIEWPORT || g_render_width<=256 || !gameplay()) return value;
+    if (throw_gate) {
+        /* ProcHammerBro ($C9E7: lda Enemy_OffscreenBits / and #$0C): a Hammer
+         * Bro "a little offscreen" does not throw. Inside the wide view he is
+         * on screen; the hammer is then kept and drawn by smb_ws_objects.c. */
+        int slot=g_ram[0x08],left,right;
+        if (slot>=5) return value;
+        game_widescreen_actor_range(camera(),g_render_width,0,&left,&right);
+        int x=live_x(slot);
+        return x>=left && x<=right-16 ? (uint8_t)(value&~0x0c) : value;
+    }
     int left,right; game_widescreen_actor_range(camera(),g_render_width,0,&left,&right);
     int edge=right-1, native=(g_ram[0x71b]<<8)|g_ram[0x71d];
     if (edge<=native) return value;
