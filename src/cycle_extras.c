@@ -55,12 +55,12 @@ static bool option(void *ctx,const char *key,const char *value) {
     return game_widescreen_arg(key,value)!=0;
 }
 void debug_server_send_fmt(const char *format,...) {
-    char raw[4096];va_list args;va_start(args,format);vsnprintf(raw,sizeof raw,format,args);va_end(args);
+    char raw[8192];va_list args;va_start(args,format);vsnprintf(raw,sizeof raw,format,args);va_end(args);
     int id=0;if(sscanf(raw,"{\"id\":%d",&id)!=1)return;char *fields=strchr(raw,','),*end=strrchr(raw,'}');if(!fields||!end)return;*end=0;cyc_tcp_ok(id,fields+1);
 }
 static void tcp_coop(int id,const char *line) {smb1_cycle_sync();game_coop_debug("coop_state",id,line);}
-#define WS_CMD(name) static void tcp_##name(int id,const char *line){(void)line;smb1_cycle_sync();int w,h;cyc_render_present(&w,&h);game_widescreen_debug(#name,id);}
-WS_CMD(smb_ws_state) WS_CMD(smb_ws_seam) WS_CMD(smb_ws_actors)
+#define WS_CMD(name,query) static void tcp_##name(int id,const char *line){(void)line;smb1_cycle_sync();int w,h;cyc_render_present(&w,&h);if(!game_widescreen_debug(query,id))cyc_tcp_err(id,"widescreen debug: no answer");}
+WS_CMD(smb_ws_state,"smb_ws_state") WS_CMD(smb_ws_seam,"smb_ws_seam") WS_CMD(smb_ws_actors,"smb_ws_enemies")
 static void tcp_setup(void *ctx) {(void)ctx;cyc_tcp_register("coop_state","logical player and shared-world state",tcp_coop);cyc_tcp_register("smb_ws_state","terrain state",tcp_smb_ws_state);cyc_tcp_register("smb_ws_seam","terrain comparison",tcp_smb_ws_seam);cyc_tcp_register("smb_ws_actors","resident state",tcp_smb_ws_actors);}
 static void event(void *ctx,const void *raw,int player) {(void)ctx;cyc_presentation_event(raw,player);game_voxel_handle_event(raw);}
 static void audio_mix(void *ctx,int16_t *samples,size_t count) {(void)ctx;nes_mod_audio_mix(samples,(int)count);}
