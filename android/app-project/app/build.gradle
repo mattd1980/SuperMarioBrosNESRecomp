@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Native libraries (libmain.so, libSDL2.so) and the unpacked assets are
+// prepared by ../build-apk.ps1 from the NDK CMake build of the game; this
+// project only compiles the Java shell (plus SDL's own Java classes) and packs.
+def sdlJava = file(project.findProperty('sdlJava') ?: '../../third_party/SDL2-2.30.12/android-project/app/src/main/java')
+
+android {
+    namespace 'com.mattd.smbrecomp'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.mattd.smbrecomp'
+        minSdk 28
+        targetSdk 36
+        versionCode 1
+        versionName '0.1'
+    }
+
+    buildFeatures { buildConfig true }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug   // personal build; sideload only
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java', sdlJava]
+            jniLibs.srcDirs = ['build-native/jniLibs']
+            assets.srcDirs = ['build-native/assets']
+        }
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging true }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

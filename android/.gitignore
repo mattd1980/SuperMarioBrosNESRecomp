@@ -1,0 +1,9 @@
+build-arm64/
+build-x86_64/
+third_party/
+*.log
+app-project/.gradle/
+app-project/build/
+app-project/app/build/
+app-project/app/build-native/
+app-project/local.properties
