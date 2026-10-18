@@ -454,15 +454,20 @@ static int flag_hook(uint16_t addr) {
 }
 static int cull_hook(uint16_t addr) {
     (void)addr;
-    if (!s_enabled || s_virtual || !gameplay() || g_cpu.X>=5) return 0;
+    if (!s_enabled || s_virtual || !gameplay() || g_cpu.X>5) return 0;
+    if (g_cpu.X==5 && g_ram[0x1b]!=0x2e) return 0;  /* slot 5: only the power-up */
     int x=live_x(g_cpu.X),cam=camera();
-    if (s.owner[g_cpu.X]>=0) return x<cam || x>cam+304;
+    if (g_cpu.X<5 && s.owner[g_cpu.X]>=0) return x<cam || x>cam+304;
     /* Not a resident: OffscreenBoundsCheck erases it at native left-72 /
      * right+72, which can be inside the wide view. Skip only that erase while
      * it is still in view (never earlier than SMB would erase). */
     if (g_render_width<=256) return 0;
-    int left,right; game_widescreen_actor_range(cam,g_render_width,PAD,&left,&right);
-    return (x<cam-72 || x>=cam+256+72) && x>=left && x<=right;
+    /* The five slots are scarce: free one once it is 32 px past the view's
+     * left edge; the right keeps PAD for spawns placed past the wide edge. */
+    int left,right; game_widescreen_actor_range(cam,g_render_width,0,&left,&right);
+    /* SMB's own bounds: left of ScreenLeft-72, or at/after ScreenRight+72
+     * (ScreenRight = ScreenLeft+255) */
+    return (x<cam-72 || x>=cam+255+72) && x>=left-32 && x<=right+PAD;
 }
 void smb_ws_actors_begin_frame(void) {
     if (!s_enabled || runtime_get_vblank_depth()>1) return;
@@ -565,6 +570,7 @@ int smb_ws_actors_suppress_sprite(int slot) {
 void smb_ws_actors_draw(uint32_t *out,int width,int native_x0,int render_camera,const uint8_t *opaque) {
     if (!s_enabled || !gameplay() || !(g_ppumask&16)) return;
     int pattern=(g_ppuctrl&8)?0x1000:0;
+    const uint8_t *pal=game_widescreen_frame_palette();
     /* Native OAM owners draw first when they have higher sprite priority.
      * Preserve their opaque pixels when replacing an enemy behind them. */
     uint8_t native_priority[256*240]; memset(native_priority,255,sizeof native_priority);
@@ -591,7 +597,7 @@ void smb_ws_actors_draw(uint32_t *out,int width,int native_x0,int render_camera,
                 int off=pattern+v->tile*16+((v->attr&128)?7-y:y),bit=(v->attr&64)?x:7-x;
                 int color=((g_chr_ram[off]>>bit)&1)|(((g_chr_ram[off+8]>>bit)&1)<<1);
                 if (!color || ((v->attr&32) && opaque[dy*width+dx])) continue;
-                out[dy*width+dx]=g_nes_palette[g_ppu_pal[16+(v->attr&3)*4+color]&63];
+                out[dy*width+dx]=g_nes_palette[pal[16+(v->attr&3)*4+color]&63];
             }
         }
     }

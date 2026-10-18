@@ -4,6 +4,7 @@
 #ifdef SMB1_CYCLE
 #include "cycle_bridge.h"
 #include "smb_ws_fireballs.h"
+#include "smb_ws_objects.h"
 #else
 #include "nes_runtime.h"
 #endif
@@ -181,7 +182,8 @@ static int render(uint32_t *out, int width, int height, int native_x0,
     s_render_ok = 1;
     int room_left = 0, room_right = SMB_WS_META_COLUMNS * 16;
     if (anchor_camera(width)) smb_ws_world_bounds(cam, &room_left, &room_right);
-    uint32_t backdrop = g_nes_palette[g_ppu_pal[0] & 63];
+    const uint8_t *pal = game_widescreen_frame_palette();
+    uint32_t backdrop = g_nes_palette[pal[0] & 63];
     int pattern = (g_ppuctrl & 0x10) ? 0x1000 : 0;
     for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
         uint8_t tile, palette;
@@ -192,7 +194,7 @@ static int render(uint32_t *out, int width, int height, int native_x0,
             int offset = pattern + tile * 16 + (y & 7), shift = 7 - (wx & 7);
             int pixel = ((g_chr_ram[offset] >> shift) & 1) |
                         (((g_chr_ram[offset+8] >> shift) & 1) << 1);
-            if (pixel) { color = g_nes_palette[g_ppu_pal[palette*4 + pixel] & 63]; s_opaque[y*width+x]=1; }
+            if (pixel) { color = g_nes_palette[pal[palette*4 + pixel] & 63]; s_opaque[y*width+x]=1; }
         }
         out[y * width + x] = color;
     }
@@ -207,6 +209,7 @@ static int render(uint32_t *out, int width, int height, int native_x0,
     compose_status_bar(out, width, native_x0, play_x0, native);
     smb_ws_actors_draw(out,width,play_x0,cam,s_opaque);
 #ifdef SMB1_CYCLE
+    smb_ws_objects_draw(out, width, play_x0, cam, s_opaque);
     smb_ws_fireballs_draw(out, width, height, play_x0, s_opaque);
 #endif
     ppu_renderer_set_background_opaque_frame(s_opaque,width,height);
@@ -234,6 +237,7 @@ static void apply(void) {
     smb_ws_actors_configure(s_enabled,s_enemies);
 #ifdef SMB1_CYCLE
     smb_ws_fireballs_configure(s_enabled);
+    smb_ws_objects_configure(s_enabled);
 #endif
 }
 void game_widescreen_set_mod_enabled(int enabled) {
@@ -258,7 +262,42 @@ void game_widescreen_init(void) {
 void game_widescreen_update(void) {
     if (s_enabled && gameplay()) { smb_ws_world_update(); smb_ws_actors_update(); }
 }
-void game_widescreen_begin_frame(void) { if (s_enabled) smb_ws_actors_begin_frame(); }
+#ifdef SMB1_CYCLE
+/* The picture being presented was drawn before this NMI; the NMI then writes
+ * the next frame's palettes (star power and Bowser's levels change them every
+ * frame), and the present comes after. Palette RAM here, at the NMI's start,
+ * is the one that picture used - so host-drawn terrain and sprites match it. */
+static uint8_t s_frame_palette[32];
+static int s_frame_palette_valid;
+/* SMB loads Bowser's sprite palette ($3F14-$3F17) only when its area parser
+ * draws the axe column (AxeObj), which on the native screen always happens
+ * before he is visible. The wide view shows him earlier, while palette 1 is
+ * still the castle's. While a Bowser object exists, host-drawn sprites use the
+ * palette AxeObj will load (BowserPaletteData, $8D4C: address $3F14, 4 bytes). */
+const uint8_t *game_widescreen_frame_palette(void) {
+    static uint8_t with_bowser[32];
+    const uint8_t *pal = s_frame_palette_valid ? s_frame_palette : g_ppu_pal;
+    int bowser = 0;
+    for (int slot = 0; slot < 5; slot++) bowser |= g_ram[0x0f + slot] && g_ram[0x16 + slot] == 0x2d;
+    if (!bowser) return pal;
+    memcpy(with_bowser, pal, sizeof with_bowser);
+    for (int i = 0; i < 4; i++) with_bowser[0x14 + i] = mapper_peek_prg((uint16_t)(0x8d4f + i));
+    return with_bowser;
+}
+#else
+const uint8_t *game_widescreen_frame_palette(void) { return g_ppu_pal; }
+#endif
+void game_widescreen_begin_frame(void) {
+#ifdef SMB1_CYCLE
+    memcpy(s_frame_palette, cyc_ppu_palette(), sizeof s_frame_palette);
+    s_frame_palette_valid = 1;
+#endif
+    if (!s_enabled) return;
+    smb_ws_actors_begin_frame();
+#ifdef SMB1_CYCLE
+    smb_ws_objects_begin_frame();
+#endif
+}
 int game_widescreen_column_hook(uint16_t addr) {
     (void)addr;
     if (s_enabled && !smb_ws_world_busy() && g_ram[0x770] != 0)

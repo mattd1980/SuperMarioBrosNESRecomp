@@ -39,6 +39,7 @@ if(NESRECOMP_BACKEND STREQUAL "cycle")
             src/smb_ws_world.c
             src/smb_ws_actors.c
             src/smb_ws_fireballs.c
+            src/smb_ws_objects.c
             src/game_voxel.c
             src/game_smash64.c
             src/game_smash64_actions.c

@@ -13,6 +13,9 @@ int game_widescreen_view_left(int native_camera, int width);
 int game_widescreen_picture_origin(int width, int *camera);
 void game_widescreen_actor_range(int native_camera, int width, int pad, int *left, int *right);
 void game_widescreen_begin_frame(void);
+/* Palette RAM ($3F00-$3F1F) the presented picture was drawn with, for terrain
+ * and sprites drawn outside it. */
+const uint8_t *game_widescreen_frame_palette(void);
 void game_widescreen_init(void);
 void game_widescreen_update(void);
 int game_widescreen_arg(const char *key, const char *value);

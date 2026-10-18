@@ -19,6 +19,7 @@
 #include "cycle_bridge.h"
 #include "game_widescreen.h"
 #include "smb_ws_fireballs.h"
+#include "smb_ws_objects.h"
 
 #include <math.h>
 #include <string.h>
@@ -66,19 +67,31 @@ static float hash01(uint32_t v)            /* 0..1 from an integer, for flicker 
  * (ProcBowserFlame writes tiles $51-$53), 3: Podoboo (EnemyGraphicsTable $d0/$d7) */
 typedef struct { int x, y, kind; } Fire;
 
-static int find_fire(Fire *out, int max)
+static int fire_kind(int tile)
+{
+    return tile == 0x64 || tile == 0x65 ? 0 : tile >= 0x66 && tile <= 0x68 ? 1
+         : tile >= 0x51 && tile <= 0x53 ? 2 : tile == 0xd0 || tile == 0xd7 ? 3 : -1;
+}
+
+static int find_fire(Fire *out, int max, int camera)
 {
     const uint8_t *oam = cyc_render_oam();
     int n = 0;
     for (int i = 0; i < 64 && n < max; ++i) {
         uint8_t y = oam[i * 4], tile = oam[i * 4 + 1], x = oam[i * 4 + 3];
         if (y >= 0xef) continue;                                   /* hidden */
-        int kind = tile == 0x64 || tile == 0x65 ? 0 : tile >= 0x66 && tile <= 0x68 ? 1
-                 : tile >= 0x51 && tile <= 0x53 ? 2 : tile == 0xd0 || tile == 0xd7 ? 3 : -1;
+        if (smb_ws_objects_suppress_sprite(i)) continue;           /* redrawn below at its real place */
+        int kind = fire_kind(tile);
         if (kind < 0) continue;
         int rel = x;
         smb_ws_fireballs_sprite_rel(i, &rel);                      /* a fireball beyond the native screen */
         out[n++] = (Fire){ rel + 4, y + 1 + 4, kind };            /* centre of the 8x8 sprite */
+    }
+    /* firebars, Bowser's flame... drawn by Widescreen past the native screen */
+    int wx, wy, tile;
+    for (int k = 0; n < max && smb_ws_objects_sprite(k, &wx, &wy, &tile); ++k) {
+        int kind = fire_kind(tile);
+        if (kind >= 0) out[n++] = (Fire){ wx - camera + 4, wy + 4, kind };
     }
     return n;
 }
@@ -179,7 +192,7 @@ void game_fireglow_post_render(uint32_t *pic, int w, int h)
     int camera;
     int x0 = game_widescreen_picture_origin(w, &camera);              /* where sprite x 0 is drawn */
     Fire fire[64];
-    int n = find_fire(fire, 64);
+    int n = find_fire(fire, 64, camera);
     uint64_t frame = g_frame_count;
     if (frame != s_last_frame) {                                   /* once per emulated frame */
         if (frame < s_last_frame || frame - s_last_frame > 4) s_ember_count = 0;   /* reset, state load */

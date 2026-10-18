@@ -14,6 +14,7 @@
 #include "game_sonic.h"
 #include "smb_ws_actors.h"
 #include "smb_ws_fireballs.h"
+#include "smb_ws_objects.h"
 #include "mod_audio.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -21,7 +22,7 @@
 #include <string.h>
 uint64_t g_frame_count;
 static uint32_t picture[NES_MAX_RENDER_WIDTH*240];
-static int suppress(int slot,int x,int y,void *user) {(void)user;int rel;return game_coop_suppress_sprite(slot)||game_smash64_render_suppress_sprite(slot,x,y)||smb_ws_actors_suppress_sprite(slot)||smb_ws_fireballs_sprite_rel(slot,&rel);}
+static int suppress(int slot,int x,int y,void *user) {(void)user;int rel;return game_coop_suppress_sprite(slot)||game_smash64_render_suppress_sprite(slot,x,y)||smb_ws_actors_suppress_sprite(slot)||smb_ws_objects_suppress_sprite(slot)||smb_ws_fireballs_sprite_rel(slot,&rel);}
 static void power_on(void *ctx) {
     (void)ctx;smb1_cycle_init();cyc_render_capture_background(true);g_frame_count=0;
     if(game_coop_enabled()){game_widescreen_set_mod_enabled(0);game_voxel_set_mod_enabled(0);game_smash64_set_mod_enabled(0,NULL);game_link_set_enabled(0,NULL);game_samus_set_enabled(0,NULL);game_sonic_set_enabled(0,NULL);}
