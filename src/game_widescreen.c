@@ -118,6 +118,54 @@ int game_widescreen_picture_origin(int width, int *camera) {
     return width > 256 ? (width - 256) / 2 : 0;
 }
 
+#ifndef SMB1_CYCLE
+static void compose_status_bar(uint32_t *out, int width, int native_x0, int play_x0,
+                               const uint32_t *native) {
+    (void)play_x0;
+    for (int y = 0; y < 32; y++) {
+        if (s_edges) {
+            memcpy(out+y*width, native+y*256, 128*sizeof(uint32_t));
+            memcpy(out+y*width+width-128, native+y*256+128, 128*sizeof(uint32_t));
+        } else memcpy(out+y*width+native_x0, native+y*256, 256*sizeof(uint32_t));
+    }
+}
+#else
+/* Sprite 0 is part of the status bar: SMB parks it under the coin icon (its
+ * hit times the split) and some of its pixels draw the coin. */
+static int status_bar_sprite(int slot, int x, int y, int *out_x, void *user) {
+    *out_x = x;
+    int hud = user != NULL;
+    return (slot == 0) == hud && y < 32 && !ppu_renderer_sprite_suppressed(slot, x, y);
+}
+/* Rows 0-31 hold SMB's status bar, which is background. Only that background
+ * moves to the HUD position (screen edges, or centered on the screen); sprites
+ * in those rows - Mario jumping near the top, a coin or score above a block -
+ * stay over the play area like every other row, except sprite 0 (the coin
+ * icon's). Copying the native rows whole moved them with the HUD text. */
+static void compose_status_bar(uint32_t *out, int width, int native_x0, int play_x0,
+                               const uint32_t *native) {
+    static uint32_t bg[256*240], sprites[256*240];
+    const uint8_t *mask = cyc_frame_bg_opaque();
+    int split = cyc_render_background(bg);
+    if (split) cyc_render_sprites(bg, 256, 240, 0, mask, status_bar_sprite, (void *)1);
+    const uint32_t *hud = split ? bg : native;   /* no capture: the old whole-row copy */
+    for (int y = 0; y < 32; y++) for (int x = 0; x < 256; x++) {
+        int dx = !s_edges ? native_x0 + x : x < 128 ? x : width - 256 + x;
+        if (dx < 0 || dx >= width) continue;
+        out[y*width+dx] = hud[y*256+x];
+        s_opaque[y*width+dx] = mask[y*256+x];
+    }
+    if (!split) return;
+    memset(sprites, 0, sizeof sprites);            /* alpha 0: no sprite pixel */
+    cyc_render_sprites(sprites, 256, 240, 0, mask, status_bar_sprite, NULL);
+    for (int y = 0; y < 32; y++) for (int x = 0; x < 256; x++) {
+        uint32_t c = sprites[y*256+x];
+        int dx = play_x0 + x;
+        if ((c >> 24) && dx >= 0 && dx < width) out[y*width+dx] = c;
+    }
+}
+#endif
+
 static int render(uint32_t *out, int width, int height, int native_x0,
                   const uint32_t *native, void *user) {
     (void)user;
@@ -155,14 +203,9 @@ static int render(uint32_t *out, int width, int height, int native_x0,
         out[y*width+x+play_x0] = native[y*256+x];
         s_opaque[y*width+x+play_x0]=(uint8_t)ppu_renderer_background_opaque(x,y);
     }
+    compose_status_bar(out, width, native_x0, play_x0, native);
     smb_ws_actors_draw(out,width,play_x0,cam,s_opaque);
     ppu_renderer_set_background_opaque_frame(s_opaque,width,height);
-    for (int y = 0; y < 32; y++) {
-        if (s_edges) {
-            memcpy(out+y*width, native+y*256, 128*sizeof(uint32_t));
-            memcpy(out+y*width+width-128, native+y*256+128, 128*sizeof(uint32_t));
-        } else memcpy(out+y*width+native_x0, native+y*256, 256*sizeof(uint32_t));
-    }
     s_wide_frames++;
     return 1;
 }

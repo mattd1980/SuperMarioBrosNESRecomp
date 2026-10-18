@@ -487,7 +487,7 @@ void smb_ws_actors_draw(uint32_t *out,int width,int native_x0,int render_camera,
             const Sprite *v=&p->sprite[i];
             for (int y=0;y<8;y++) for (int x=0;x<8;x++) {
                 int dx=v->x-render_camera+native_x0+x,dy=v->y+y;
-                if (dx<0 || dx>=width || dy<32 || dy>=240) continue;
+                if (dx<0 || dx>=width || dy>=240) continue;
                 if (dx>=native_x0 && dx<native_x0+256 &&
                     native_priority[dy*256+dx-native_x0]<(p->native?p->oam_base:64)) continue;
                 int off=pattern+v->tile*16+((v->attr&128)?7-y:y),bit=(v->attr&64)?x:7-x;
