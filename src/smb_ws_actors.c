@@ -70,6 +70,11 @@ typedef struct {
 } Actors;
 static Actors s;
 static int s_enabled,s_virtual,s_render_wide;
+/* Native-slot enemies the residents do not own (Lakitu, Spinies, Bullet
+ * Bills, Podoboos...) are drawn by SMB only inside the native screen; past it
+ * they get the same private graphics pass as residents. Display only, rebuilt
+ * every frame, so not part of the savestate. */
+static Packet s_slot_display[5],s_slot_next[5];
 /* Mod-added enemies: record offset EXTRA_OFFSET with member EXTRA_MEMBER, which
  * no ROM record (members 0-2) can match in spawn_hook. */
 enum { EXTRA_OFFSET=254, EXTRA_MEMBER=7 };
@@ -367,9 +372,57 @@ static int gfx_hook(uint16_t addr) {
         int oam_base=g_ram[0x6e5+slot]/4;
         Guest g;
         if (begin(&g,&current)) { graphics(&s.next[n],1,oam_base); end(&g); }
+    } else if (g_render_width>256 && g_ram[0x0f+slot] && g_ram[0x16+slot]!=0x2d) {
+        /* not Bowser: his two halves read each other's slots */
+        int rel=live_x(slot)-camera();
+        if (rel<16 || rel>232) {          /* some of it is past the native screen */
+            Actor current={0}; pull(&current,slot);
+            Guest g;
+            if (begin(&g,&current)) { graphics(&s_slot_next[slot],1,g_ram[0x6e5+slot]/4); end(&g); }
+        }
     }
     return 0;
 }
+#ifdef SMB1_CYCLE
+/* PutAtRightExtent ($C5D8; Lakitu, the Bullet Bill / Cheep-Cheep frenzy):
+ * SMB places the enemy 32 px past the native right edge, which is inside the
+ * wide view. With viewport activation, place it 32 px past the wide view's
+ * edge instead, then finish exactly as FinishFlame ($C61F) does. A = its Y. */
+static int right_extent_hook(uint16_t addr) {
+    (void)addr;
+    if (!s_enabled || s_virtual || s_mode!=SMB_ENEMIES_VIEWPORT || g_render_width<=256 || !gameplay()) return 0;
+    CycModRegs r; cyc_mod_regs(&r);
+    int slot=r.x; if (slot>=6) return 0;
+    int left,right; game_widescreen_actor_range(camera(),g_render_width,0,&left,&right);
+    int x=right+32, native=((g_ram[0x71b]<<8)|g_ram[0x71d])+32;
+    if (x<native) x=native;                       /* never nearer than SMB's own point */
+    cyc_mod_poke((uint16_t)(0xcf+slot),r.a);      /* Enemy_Y_Position */
+    cyc_mod_poke((uint16_t)(0x87+slot),(uint8_t)x); cyc_mod_poke((uint16_t)(0x6e+slot),(uint8_t)(x>>8));
+    cyc_mod_poke((uint16_t)(0x49a+slot),0x08);   /* FinishFlame: bounding box control */
+    cyc_mod_poke((uint16_t)(0xb6+slot),0x01);    /* Enemy_Y_HighPos */
+    cyc_mod_poke((uint16_t)(0x0f+slot),0x01);    /* Enemy_Flag */
+    cyc_mod_poke((uint16_t)(0x401+slot),0x00);   /* Enemy_X_MoveForce */
+    cyc_mod_poke((uint16_t)(0x1e+slot),0x00);    /* Enemy_State */
+    r.a=0; r.p=(uint8_t)((r.p&~0x80)|0x03);      /* lsr of 1: A=0, Z and C set, N clear */
+    cyc_mod_set_regs(&r);
+    return 1;
+}
+/* Enemy-data lookahead. CheckRightBounds ($C164) reads ScreenRight_X_Pos
+ * (lda at $C164) and ScreenRight_PageLoc (lda at $C16E) to set the parser's
+ * extended bound at native right+48, so enemies the residents do not own
+ * (Lakitu, firebars, Bowser...) appeared inside the wide view. With viewport
+ * activation those two reads alone see the wide view's right edge; RAM and
+ * every other ScreenRight read (including the "already behind" test) keep
+ * the native value. A pure read verdict (cyc_mod_set_ram_read_hook). */
+uint8_t smb_ws_actors_ram_read(uint16_t pc,uint16_t addr,uint8_t value) {
+    if (!((pc==0xc164 && addr==0x71d) || (pc==0xc16e && addr==0x71b))) return value;
+    if (!s_enabled || s_virtual || s_mode!=SMB_ENEMIES_VIEWPORT || g_render_width<=256 || !gameplay()) return value;
+    int left,right; game_widescreen_actor_range(camera(),g_render_width,0,&left,&right);
+    int edge=right-1, native=(g_ram[0x71b]<<8)|g_ram[0x71d];
+    if (edge<=native) return value;
+    return pc==0xc164?(uint8_t)edge:(uint8_t)(edge>>8);
+}
+#endif
 static int plant_hook(uint16_t addr) {
     (void)addr;
     if (!s_enabled || s_virtual || smb_ws_world_busy() || !gameplay() || g_cpu.X>=5 || !ensure()) return 0;
@@ -401,14 +454,21 @@ static int flag_hook(uint16_t addr) {
 }
 static int cull_hook(uint16_t addr) {
     (void)addr;
-    if (!s_enabled || s_virtual || !gameplay() || g_cpu.X>=5 || s.owner[g_cpu.X]<0) return 0;
+    if (!s_enabled || s_virtual || !gameplay() || g_cpu.X>=5) return 0;
     int x=live_x(g_cpu.X),cam=camera();
-    return x<cam || x>cam+304;
+    if (s.owner[g_cpu.X]>=0) return x<cam || x>cam+304;
+    /* Not a resident: OffscreenBoundsCheck erases it at native left-72 /
+     * right+72, which can be inside the wide view. Skip only that erase while
+     * it is still in view (never earlier than SMB would erase). */
+    if (g_render_width<=256) return 0;
+    int left,right; game_widescreen_actor_range(cam,g_render_width,PAD,&left,&right);
+    return (x<cam-72 || x>=cam+256+72) && x>=left && x<=right;
 }
 void smb_ws_actors_begin_frame(void) {
     if (!s_enabled || runtime_get_vblank_depth()>1) return;
     s_render_wide=g_render_width>256;
     memcpy(s.display,s.next,sizeof s.display); memset(s.next,0,sizeof s.next);
+    memcpy(s_slot_display,s_slot_next,sizeof s_slot_display); memset(s_slot_next,0,sizeof s_slot_next);
     s.flag_display=s.flag_next; memset(&s.flag_next,0,sizeof s.flag_next);
     s.camera=camera();
 }
@@ -496,6 +556,10 @@ int smb_ws_actors_suppress_sprite(int slot) {
         const Packet *p=&s.display[n];
         if (p->native && slot>=p->oam_base && slot<p->oam_base+SPRITES) return 1;
     }
+    for (int k=0;k<5;k++) {
+        const Packet *p=&s_slot_display[k];
+        if (p->native && slot>=p->oam_base && slot<p->oam_base+SPRITES) return 1;
+    }
     return s.flag_display.native && slot>=s.flag_display.oam_base && slot<s.flag_display.oam_base+SPRITES;
 }
 void smb_ws_actors_draw(uint32_t *out,int width,int native_x0,int render_camera,const uint8_t *opaque) {
@@ -515,8 +579,8 @@ void smb_ws_actors_draw(uint32_t *out,int width,int native_x0,int render_camera,
             if (color) native_priority[dy*256+dx]=(uint8_t)slot;
         }
     }
-    for (int n=s.count;n>=0;n--) {
-        const Packet *p=n==s.count?&s.flag_display:&s.display[n];
+    for (int n=s.count+5;n>=0;n--) {
+        const Packet *p=n>s.count?&s_slot_display[n-s.count-1]:n==s.count?&s.flag_display:&s.display[n];
         for (int i=p->count-1;i>=0;i--) {
             const Sprite *v=&p->sprite[i];
             for (int y=0;y<8;y++) for (int x=0;x<8;x++) {
@@ -543,6 +607,10 @@ void smb_ws_actors_configure(int enabled,SmbEnemyMode mode) {
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.plant-init",active);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.large-platform-gfx",active);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.small-platform-gfx",active);
+#ifdef SMB1_CYCLE
+    nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.right-extent",active);
+#endif
+    memset(s_slot_display,0,sizeof s_slot_display); memset(s_slot_next,0,sizeof s_slot_next);
 }
 int smb_ws_actors_debug(const char *cmd,int id) {
     if (!strcmp(cmd,"smb_ws_flag")) {
@@ -590,4 +658,8 @@ NES_MOD_CONSTRUCTOR(register_enemies) {
         !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.small-platform-gfx",0xed66,gfx_hook) ||
         !nes_mod_register_savestate_hook("super-mario-bros.widescreen.actors",save,load))
         fprintf(stderr,"[Widescreen] Failed to register enemy residents\n");
+#ifdef SMB1_CYCLE
+    if (!nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.right-extent",0xc5d8,right_extent_hook))
+        fprintf(stderr,"[Widescreen] Failed to register the right-extent spawn point\n");
+#endif
 }

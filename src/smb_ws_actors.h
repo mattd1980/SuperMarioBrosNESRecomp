@@ -20,3 +20,5 @@ void smb_ws_actors_set_extra_enemies(SmbWsExtraEnemies source);
 int smb_ws_actors_managing(void);
 /* Fireball box in world coordinates; see smb_ws_actors.c. Native slot or -1. */
 int smb_ws_actors_fireball_target(int left, int top, int right, int bottom);
+/* RAM read verdict (cycle): the enemy parser's lookahead sees the wide edge. */
+uint8_t smb_ws_actors_ram_read(uint16_t pc, uint16_t addr, uint8_t value);

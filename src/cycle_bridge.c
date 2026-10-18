@@ -5,6 +5,7 @@
 #include "game_coop.h"
 #include "game_widescreen.h"
 #include "game_smash64.h"
+#include "smb_ws_actors.h"
 #include "mod_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,6 +84,10 @@ void runtime_get_visible_frame_start(uint8_t *ctrl,uint8_t *x,uint8_t *y,void *a
 }
 static int title_ready(uint16_t address) {(void)address;if(g_cpu.A==5)game_coop_cycle_title_ready();return 0;}
 static int nmi(uint16_t address) {(void)address;game_coop_before_frame();game_widescreen_begin_frame();return 0;}
-void smb1_cycle_init(void) {smb1_cycle_sync();cyc_mod_set_ram_read_hook(game_smash64_ram_read_hook);
+/* The one RAM read verdict: widescreen's enemy lookahead, then Smash 64's. */
+static uint8_t ram_read(uint16_t pc,uint16_t addr,uint8_t value) {
+    return game_smash64_ram_read_hook(pc,addr,smb_ws_actors_ram_read(pc,addr,value));
+}
+void smb1_cycle_init(void) {smb1_cycle_sync();cyc_mod_set_ram_read_hook(ram_read);
     if(!nes_mod_set_function_hook_enabled("smb.cycle.nmi",1)||!nes_mod_set_function_hook_enabled("smb.cycle.title-ready",1))abort();}
 NES_MOD_CONSTRUCTOR(register_cycle_latch) {smb1_cycle_register_hook("smb.cycle.nmi",0x8082,nmi);smb1_cycle_register_hook("smb.cycle.title-ready",0x864c,title_ready);}
