@@ -306,3 +306,18 @@ crc32 = 0x26d31cc5
 addr = 0xe4dc
 length = 16
 crc32 = 0x2d85208d
+
+[[mod_function_hook]]
+addr = 0xebd1
+length = 16
+crc32 = 0x5c33c1dc
+
+[[mod_function_hook]]
+addr = 0xec53
+length = 16
+crc32 = 0x1192e2ec
+
+[[mod_function_hook]]
+addr = 0xe686
+length = 16
+crc32 = 0x46cd6344

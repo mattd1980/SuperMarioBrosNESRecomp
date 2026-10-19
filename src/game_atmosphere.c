@@ -15,6 +15,7 @@
 #include "game_atmosphere.h"
 #include "cycle_bridge.h"
 #include "game_widescreen.h"
+#include "smb_ws_objects.h"
 
 #include <math.h>
 #include <string.h>
@@ -226,10 +227,21 @@ void game_atmosphere_post(uint32_t *pic, int w, int h)
     }
     int box[4] = { w, 240, -1, -1 };
     float ft = (float)c.frame;
+    /* The frame's sprites: displayed OAM (native X, 8 bits), except entries
+     * Widescreen hides because their X wrapped past the native screen; those
+     * come after it at their real place (smb_ws_objects_sprite, world X). */
     const uint8_t *oam = cyc_render_oam();
-    for (int i = 0; i < 64; ++i) {
-        uint8_t y = oam[i * 4], tile = oam[i * 4 + 1], x = oam[i * 4 + 3];
-        if (y >= 0xef) continue;
+    for (int i = 0, k = 0;; ++i) {
+        int x, y, tile;
+        if (i < 64) {
+            y = oam[i * 4]; tile = oam[i * 4 + 1]; x = oam[i * 4 + 3];
+            if (y >= 0xef || smb_ws_objects_suppress_sprite(i)) continue;
+        } else {
+            int wx;
+            if (!smb_ws_objects_sprite(k++, &wx, &y, &tile)) break;
+            x = wx - c.camera;
+            y -= 1;
+        }
         float cx = (float)(c.x0 + x + 4), cy = (float)(y + 1 + 4), wx = (float)(x + 4 + c.camera);
         if (s_items && tile >= 0x60 && tile <= 0x63) {                     /* jumping coin */
             light(w, cx, cy, 22.0f, 0.38f, 1.0f, 0.78f, 0.22f, box);

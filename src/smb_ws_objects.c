@@ -1,5 +1,6 @@
 /* Objects SMB draws with their own routines - firebars, Bowser and his flame,
- * and the power-up in slot 5 - across the wide view.
+ * the power-up in slot 5, hammers, jumping coins, bumped blocks and brick
+ * chunks - across the wide view.
  *
  * Their routines compute screen-relative X in 8 bits and hide every sprite
  * column the offscreen bits mark past the native screen (a firebar whose
@@ -22,10 +23,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Captures: enemy slots 0-5, then misc objects 0-8 (hammers) at MISC+i. */
-enum { MISC = 6, SLOTS = MISC + 9, SPRITES = 24 };
+/* Captures: enemy slots 0-5, misc objects 0-8 (hammers, jumping coins) at
+ * MISC+i, block objects 0-1 (bumped blocks, brick chunks) at BLOCK+i. */
+enum { MISC = 6, BLOCK = MISC + 9, SLOTS = BLOCK + 2, SPRITES = 24 };
 typedef struct { uint16_t offscreen_bits, rel_position; } Prepare;
-static const Prepare ENEMY = { 0xf1af, 0xf152 }, MISC_OBJECT = { 0xf19b, 0xf148 };
+static const Prepare ENEMY = { 0xf1af, 0xf152 }, MISC_OBJECT = { 0xf19b, 0xf148 }, BLOCK_OBJECT = { 0xf1b6, 0xf159 };
 
 typedef struct { int16_t x, y; uint8_t tile, attr, oam; } WideSprite;
 typedef struct { int count; WideSprite sprite[SPRITES]; uint64_t oam_mask; } Capture;
@@ -142,6 +144,35 @@ static int hammer_hook(uint16_t addr) {
     return 0;
 }
 
+static int misc_x(int i) { return (g_ram[0x7a + i] << 8) | g_ram[0x93 + i]; }
+
+/* JCoinGfxHandler ($E686), X = misc object: a jumping coin, then its "200".
+ * Neither is erased off screen; their 8-bit X just wraps. */
+static int coin_hook(uint16_t addr) {
+    (void)addr;
+    int i = slot_of();
+    if (i < 9 && wanted(misc_x(i) + 8, 16)) capture_into(MISC + i, i, 0xe686, misc_x(i) + 8, &MISC_OBJECT);
+    return 0;
+}
+
+/* DrawBlock ($EBD1) and DrawBrickChunks ($EC53), X = block object 0-1, whose
+ * positions are SprObject 9+i (and 11+i for the lower chunks). The chunks
+ * drift left of Block_Orig_XPos and are mirrored right of it, so the pair
+ * spans orig +- the drift. Neither erases anything off screen: past the
+ * native screen sprites are hidden or wrapped. */
+static int block_hook(uint16_t addr) {
+    int i = slot_of();
+    if (i >= 2) return 0;
+    int x = (g_ram[0x76 + i] << 8) | g_ram[0x8f + i];
+    if (addr == 0xebd1) {
+        if (wanted(x + 8, 16)) capture_into(BLOCK + i, i, addr, x + 8, &BLOCK_OBJECT);
+        return 0;
+    }
+    int drift = (uint8_t)(g_ram[0x3f1 + i] - (uint8_t)x), centre = x + drift + 4;
+    if (wanted(centre, drift + 12)) capture_into(BLOCK + i, i, addr, centre, &BLOCK_OBJECT);
+    return 0;
+}
+
 void smb_ws_objects_begin_frame(void) {
     if (!s_enabled) return;
     memcpy(s_display, s_next, sizeof s_display);
@@ -201,6 +232,9 @@ void smb_ws_objects_configure(int enabled) {
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.bowser-flame", s_enabled);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.power-up", s_enabled);
     nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.hammer", s_enabled);
+    nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.jumping-coin", s_enabled);
+    nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.bumped-block", s_enabled);
+    nes_mod_set_function_hook_enabled("super-mario-bros.widescreen.brick-chunks", s_enabled);
 }
 
 NES_MOD_CONSTRUCTOR(register_objects) {
@@ -208,6 +242,9 @@ NES_MOD_CONSTRUCTOR(register_objects) {
         !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.bowser", 0xd17b, bowser_hook) ||
         !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.bowser-flame", 0xd1eb, flame_hook) ||
         !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.power-up", 0xe6d2, powerup_hook) ||
-        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.hammer", 0xe4dc, hammer_hook))
+        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.hammer", 0xe4dc, hammer_hook) ||
+        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.jumping-coin", 0xe686, coin_hook) ||
+        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.bumped-block", 0xebd1, block_hook) ||
+        !nes_mod_register_function_entry_plugin("super-mario-bros.widescreen.brick-chunks", 0xec53, block_hook))
         fprintf(stderr, "[Widescreen] Failed to register object drawing hooks\n");
 }
